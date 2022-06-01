@@ -1881,6 +1881,7 @@ static int btfgen_record_reloc(struct btfgen_info *info, struct bpf_core_spec *r
 		return 0;
 	case BPF_CORE_TYPE_ID_TARGET:
 	case BPF_CORE_TYPE_EXISTS:
+	case BPF_CORE_TYPE_MATCHES:
 	case BPF_CORE_TYPE_SIZE:
 		return btfgen_record_type_relo(info, res);
 	case BPF_CORE_ENUMVAL_EXISTS:
