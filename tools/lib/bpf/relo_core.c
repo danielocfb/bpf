@@ -95,6 +95,7 @@ static const char *core_relo_kind_str(enum bpf_core_relo_kind kind)
 	case BPF_CORE_TYPE_ID_LOCAL: return "local_type_id";
 	case BPF_CORE_TYPE_ID_TARGET: return "target_type_id";
 	case BPF_CORE_TYPE_EXISTS: return "type_exists";
+	case BPF_CORE_TYPE_MATCHES: return "type_matches";
 	case BPF_CORE_TYPE_SIZE: return "type_size";
 	case BPF_CORE_ENUMVAL_EXISTS: return "enumval_exists";
 	case BPF_CORE_ENUMVAL_VALUE: return "enumval_value";
@@ -123,6 +124,7 @@ static bool core_relo_is_type_based(enum bpf_core_relo_kind kind)
 	case BPF_CORE_TYPE_ID_LOCAL:
 	case BPF_CORE_TYPE_ID_TARGET:
 	case BPF_CORE_TYPE_EXISTS:
+	case BPF_CORE_TYPE_MATCHES:
 	case BPF_CORE_TYPE_SIZE:
 		return true;
 	default:
@@ -171,7 +173,7 @@ static bool core_relo_is_enumval_based(enum bpf_core_relo_kind kind)
  *   - field 'a' access (corresponds to '2' in low-level spec);
  *   - array element #3 access (corresponds to '3' in low-level spec).
  *
- * Type-based relocations (TYPE_EXISTS/TYPE_SIZE,
+ * Type-based relocations (TYPE_EXISTS/TYPE_MATCHES/TYPE_SIZE,
  * TYPE_ID_LOCAL/TYPE_ID_TARGET) don't capture any field information. Their
  * spec and raw_spec are kept empty.
  *
@@ -484,9 +486,24 @@ static int bpf_core_spec_match(struct bpf_core_spec *local_spec,
 	targ_spec->relo_kind = local_spec->relo_kind;
 
 	if (core_relo_is_type_based(local_spec->relo_kind)) {
-		return bpf_core_types_are_compat(local_spec->btf,
-						 local_spec->root_type_id,
-						 targ_btf, targ_id);
+		switch (local_spec->relo_kind) {
+		case BPF_CORE_TYPE_ID_TARGET:
+		case BPF_CORE_TYPE_EXISTS:
+		case BPF_CORE_TYPE_SIZE:
+			return bpf_core_types_are_compat(local_spec->btf,
+							 local_spec->root_type_id,
+							 targ_btf, targ_id);
+		case BPF_CORE_TYPE_MATCHES:
+			return bpf_core_types_match(local_spec->btf,
+						    local_spec->root_type_id,
+						    targ_btf, targ_id);
+		default:
+			/* We shouldn't be seeing any other (type based) relocation kinds
+			 * here. BPF_CORE_TYPE_ID_LOCAL, the only one not covered, is
+			 * handled earlier on, as its treatment is somewhat special.
+			 */
+			return -EOPNOTSUPP;
+		}
 	}
 
 	local_acc = &local_spec->spec[0];
@@ -732,6 +749,7 @@ static int bpf_core_calc_type_relo(const struct bpf_core_relo *relo,
 			*validate = false;
 		break;
 	case BPF_CORE_TYPE_EXISTS:
+	case BPF_CORE_TYPE_MATCHES:
 		*val = 1;
 		break;
 	case BPF_CORE_TYPE_SIZE:
