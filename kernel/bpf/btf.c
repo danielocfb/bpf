@@ -7442,6 +7442,273 @@ int bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
 					   MAX_TYPES_ARE_COMPAT_DEPTH);
 }
 
+#define MAX_TYPES_MATCH_DEPTH 2
+
+static bool bpf_core_names_match(const struct btf *local_btf, u32 local_id,
+				 const struct btf *targ_btf, u32 targ_id)
+{
+	const struct btf_type *local_t, *targ_t;
+	const char *local_n, *targ_n;
+	size_t local_len, targ_len;
+
+	local_t = btf_type_by_id(local_btf, local_id);
+	targ_t = btf_type_by_id(targ_btf, targ_id);
+	local_n = btf_str_by_offset(local_btf, local_t->name_off);
+	targ_n = btf_str_by_offset(targ_btf, targ_t->name_off);
+	local_len = bpf_core_essential_name_len(local_n);
+	targ_len = bpf_core_essential_name_len(targ_n);
+
+	return local_len == targ_len && strncmp(local_n, targ_n, local_len) == 0;
+}
+
+static int bpf_core_enums_match(const struct btf *local_btf, const struct btf_type *local_t,
+				const struct btf *targ_btf, const struct btf_type *targ_t)
+{
+	u16 local_vlen = btf_vlen(local_t);
+	u16 targ_vlen = btf_vlen(targ_t);
+	int i, j;
+
+	if (local_t->size != targ_t->size)
+		return 0;
+
+	if (local_vlen > targ_vlen)
+		return 0;
+
+	/* iterate over the local enum's variants and make sure each has
+	 * a symbolic name correspondent in the target
+	 */
+	for (i = 0; i < local_vlen; i++) {
+		bool matched = false;
+		const char *local_n;
+		__u32 local_n_off;
+		size_t local_len;
+
+		local_n_off = btf_is_enum(local_t) ? btf_type_enum(local_t)[i].name_off :
+						     btf_type_enum64(local_t)[i].name_off;
+
+		local_n = btf_name_by_offset(local_btf, local_n_off);
+		local_len = bpf_core_essential_name_len(local_n);
+
+		for (j = 0; j < targ_vlen; j++) {
+			const char *targ_n;
+			__u32 targ_n_off;
+			size_t targ_len;
+
+			targ_n_off = btf_is_enum(targ_t) ? btf_type_enum(targ_t)[j].name_off :
+							   btf_type_enum64(targ_t)[j].name_off;
+			targ_n = btf_name_by_offset(targ_btf, targ_n_off);
+
+			if (str_is_empty(targ_n))
+				continue;
+
+			targ_len = bpf_core_essential_name_len(targ_n);
+
+			if (local_len == targ_len && strncmp(local_n, targ_n, local_len) == 0) {
+				matched = true;
+				break;
+			}
+		}
+
+		if (!matched)
+			return 0;
+	}
+	return 1;
+}
+
+static int __bpf_core_types_match(const struct btf *local_btf, u32 local_id,
+				  const struct btf *targ_btf, u32 targ_id, int level);
+
+static int bpf_core_composites_match(const struct btf *local_btf, const struct btf_type *local_t,
+				     const struct btf *targ_btf, const struct btf_type *targ_t,
+				     int level)
+{
+	/* check that all local members have a match in the target */
+	const struct btf_member *local_m = btf_members(local_t);
+	u16 local_vlen = btf_vlen(local_t);
+	u16 targ_vlen = btf_vlen(targ_t);
+	int i, j, err;
+
+	if (local_vlen > targ_vlen)
+		return 0;
+
+	for (i = 0; i < local_vlen; i++, local_m++) {
+		const char *local_n = btf_name_by_offset(local_btf, local_m->name_off);
+		const struct btf_member *targ_m = btf_members(targ_t);
+		bool matched = false;
+
+		for (j = 0; j < targ_vlen; j++, targ_m++) {
+			const char *targ_n = btf_name_by_offset(targ_btf, targ_m->name_off);
+
+			if (str_is_empty(targ_n))
+				continue;
+
+			if (strcmp(local_n, targ_n) != 0)
+				continue;
+
+			err = __bpf_core_types_match(local_btf, local_m->type, targ_btf,
+						     targ_m->type, level - 1);
+			if (err > 0) {
+				matched = true;
+				break;
+			}
+		}
+
+		if (!matched)
+			return 0;
+	}
+	return 1;
+}
+
+static int __bpf_core_types_match(const struct btf *local_btf, u32 local_id,
+				  const struct btf *targ_btf, u32 targ_id, int level)
+{
+	const struct btf_type *local_t, *targ_t, *prev_local_t;
+	int depth = 32; /* max recursion depth */
+	__u16 local_k;
+
+	if (level <= 0)
+		return -EINVAL;
+
+	local_t = btf_type_by_id(local_btf, local_id);
+	targ_t = btf_type_by_id(targ_btf, targ_id);
+
+recur:
+	depth--;
+	if (depth < 0)
+		return -EINVAL;
+
+	prev_local_t = local_t;
+
+	local_t = btf_type_skip_modifiers(local_btf, local_id, &local_id);
+	targ_t = btf_type_skip_modifiers(targ_btf, targ_id, &targ_id);
+	if (!local_t || !targ_t)
+		return -EINVAL;
+
+	if (!bpf_core_names_match(local_btf, local_id, targ_btf, targ_id))
+		return 0;
+
+	local_k = btf_kind(local_t);
+
+	switch (local_k) {
+	case BTF_KIND_UNKN:
+		return local_k == btf_kind(targ_t);
+	case BTF_KIND_FWD: {
+		bool local_f = btf_type_kflag(local_t);
+		__u16 targ_k = btf_kind(targ_t);
+
+		if (btf_is_ptr(prev_local_t)) {
+			if (local_k == targ_k)
+				return local_f == btf_type_kflag(local_t);
+
+			return (targ_k == BTF_KIND_STRUCT && !local_f) ||
+			       (targ_k == BTF_KIND_UNION && local_f);
+		} else {
+			if (local_k != targ_k)
+				return 0;
+
+			/* match if the forward declaration is for the same kind */
+			return local_f == btf_type_kflag(local_t);
+		}
+	}
+	case BTF_KIND_ENUM:
+	case BTF_KIND_ENUM64:
+		if (!btf_is_any_enum(targ_t))
+			return 0;
+
+		return bpf_core_enums_match(local_btf, local_t, targ_btf, targ_t);
+	case BTF_KIND_STRUCT:
+	case BTF_KIND_UNION: {
+		__u16 targ_k = btf_kind(targ_t);
+
+		if (btf_is_ptr(prev_local_t)) {
+			bool targ_f = btf_type_kflag(local_t);
+
+			if (local_k == targ_k)
+				return 1;
+
+			if (targ_k != BTF_KIND_FWD)
+				return 0;
+
+			return (local_k == BTF_KIND_UNION) == targ_f;
+		} else {
+			if (local_k != targ_k)
+				return 0;
+
+			return bpf_core_composites_match(local_btf, local_t, targ_btf, targ_t,
+							 level);
+		}
+	}
+	case BTF_KIND_INT: {
+		__u8 local_sgn;
+		__u8 targ_sgn;
+
+		if (local_k != btf_kind(targ_t))
+			return 0;
+
+		local_sgn = btf_int_encoding(local_t) & BTF_INT_SIGNED;
+		targ_sgn = btf_int_encoding(targ_t) & BTF_INT_SIGNED;
+
+		return btf_int_bits(local_t) == btf_int_bits(targ_t) && local_sgn == targ_sgn;
+	}
+	case BTF_KIND_PTR:
+		if (local_k != btf_kind(targ_t))
+			return 0;
+
+		local_id = local_t->type;
+		targ_id = targ_t->type;
+		goto recur;
+	case BTF_KIND_ARRAY: {
+		const struct btf_array *local_array = btf_type_array(local_t);
+		const struct btf_array *targ_array = btf_type_array(targ_t);
+
+		if (local_k != btf_kind(targ_t))
+			return 0;
+
+		if (local_array->nelems != targ_array->nelems)
+			return 0;
+
+		local_id = local_array->type;
+		targ_id = targ_array->type;
+		goto recur;
+	}
+	case BTF_KIND_FUNC_PROTO: {
+		struct btf_param *local_p = btf_params(local_t);
+		struct btf_param *targ_p = btf_params(targ_t);
+		u16 local_vlen = btf_vlen(local_t);
+		u16 targ_vlen = btf_vlen(targ_t);
+		int i, err;
+
+		if (local_k != btf_kind(targ_t))
+			return 0;
+
+		if (local_vlen != targ_vlen)
+			return 0;
+
+		for (i = 0; i < local_vlen; i++, local_p++, targ_p++) {
+			err = __bpf_core_types_match(local_btf, local_p->type, targ_btf,
+						     targ_p->type, level - 1);
+			if (err <= 0)
+				return err;
+		}
+
+		/* tail recurse for return type check */
+		local_id = local_t->type;
+		targ_id = targ_t->type;
+		goto recur;
+	}
+	default:
+		return 0;
+	}
+}
+
+int bpf_core_types_match(const struct btf *local_btf, u32 local_id,
+			 const struct btf *targ_btf, u32 targ_id)
+{
+	return __bpf_core_types_match(local_btf, local_id,
+				      targ_btf, targ_id,
+				      MAX_TYPES_MATCH_DEPTH);
+}
+
 static bool bpf_core_is_flavor_sep(const char *s)
 {
 	/* check X___Y name pattern, where X and Y are not underscores */
