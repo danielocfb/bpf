@@ -486,24 +486,14 @@ static int bpf_core_spec_match(struct bpf_core_spec *local_spec,
 	targ_spec->relo_kind = local_spec->relo_kind;
 
 	if (core_relo_is_type_based(local_spec->relo_kind)) {
-		switch (local_spec->relo_kind) {
-		case BPF_CORE_TYPE_ID_TARGET:
-		case BPF_CORE_TYPE_EXISTS:
-		case BPF_CORE_TYPE_SIZE:
-			return bpf_core_types_are_compat(local_spec->btf,
-							 local_spec->root_type_id,
-							 targ_btf, targ_id);
-		case BPF_CORE_TYPE_MATCHES:
+		if (local_spec->relo_kind == BPF_CORE_TYPE_MATCHES)
 			return bpf_core_types_match(local_spec->btf,
 						    local_spec->root_type_id,
 						    targ_btf, targ_id);
-		default:
-			/* We shouldn't be seeing any other (type based) relocation kinds
-			 * here. BPF_CORE_TYPE_ID_LOCAL, the only one not covered, is
-			 * handled earlier on, as its treatment is somewhat special.
-			 */
-			return -EOPNOTSUPP;
-		}
+		else
+			return bpf_core_types_are_compat(local_spec->btf,
+							 local_spec->root_type_id,
+							 targ_btf, targ_id);
 	}
 
 	local_acc = &local_spec->spec[0];

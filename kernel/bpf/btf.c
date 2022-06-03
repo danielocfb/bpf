@@ -7401,8 +7401,8 @@ recur:
  * These rules are not set in stone and probably will be adjusted as we get
  * more experience with using BPF CO-RE relocations.
  */
-int bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
-			      const struct btf *targ_btf, __u32 targ_id)
+int bpf_core_types_are_compat(const struct btf *local_btf, u32 local_id,
+			      const struct btf *targ_btf, u32 targ_id)
 {
 	return __bpf_core_types_are_compat(local_btf, local_id,
 					   targ_btf, targ_id,
@@ -7412,8 +7412,8 @@ int bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
 #define MAX_TYPES_MATCH_DEPTH 2
 
 static
-int __bpf_core_types_match(const struct btf *local_btf, __u32 local_id,
-			   const struct btf *targ_btf, __u32 targ_id,
+int __bpf_core_types_match(const struct btf *local_btf, u32 local_id,
+			   const struct btf *targ_btf, u32 targ_id,
 			   int level)
 {
 	const struct btf_type *local_type, *targ_type;
@@ -7443,14 +7443,15 @@ recur:
 
 	switch (btf_kind(local_type)) {
 	case BTF_KIND_UNKN:
-	case BTF_KIND_FWD:
 		return 1;
+	case BTF_KIND_FWD:
+		/* match if the forward declaration is for the same kind */
+		return btf_type_kflag(local_type) == btf_type_kflag(targ_type);
 	case BTF_KIND_ENUM: {
 		const struct btf_enum *local_e = btf_type_enum(local_type);
-		const struct btf_enum *targ_e = btf_type_enum(targ_type);
-		__u16 local_vlen = btf_vlen(local_type);
-		__u16 targ_vlen = btf_vlen(targ_type);
-		int i;
+		u16 local_vlen = btf_vlen(local_type);
+		u16 targ_vlen = btf_vlen(targ_type);
+		int i, j;
 
 		if (local_vlen > targ_vlen)
 			return 0;
@@ -7458,11 +7459,21 @@ recur:
 		/* iterate over the local enum's variants and make sure each has
 		 * a symbolic name correspondent in the target
 		 */
-		for (i = 0; i < local_vlen; i++, local_e++, targ_e++) {
+		for (i = 0; i < local_vlen; i++, local_e++) {
 			const char *local_n = btf_name_by_offset(local_btf, local_e->name_off);
-			const char *targ_n = btf_name_by_offset(targ_btf, targ_e->name_off);
+			const struct btf_enum *targ_e = btf_type_enum(targ_type);
+			bool matched = false;
 
-			if (strcmp(local_n, targ_n) != 0)
+			for (j = 0; j < targ_vlen; j++, targ_e++) {
+				const char *targ_n = btf_name_by_offset(targ_btf, targ_e->name_off);
+
+				if (strcmp(local_n, targ_n) == 0) {
+					matched = true;
+					break;
+				}
+			}
+
+			if (!matched)
 				return 0;
 		}
 		return 1;
@@ -7471,29 +7482,45 @@ recur:
 	case BTF_KIND_UNION: {
 		/* check that all local members have a match in the target */
 		const struct btf_member *local_m = btf_members(local_type);
-		const struct btf_member *targ_m = btf_members(targ_type);
-		__u16 local_vlen = btf_vlen(local_type);
-		__u16 targ_vlen = btf_vlen(targ_type);
-		int i, err;
+		u16 local_vlen = btf_vlen(local_type);
+		u16 targ_vlen = btf_vlen(targ_type);
+		int i, j, err;
 
 		if (local_vlen > targ_vlen)
 			return 0;
 
-		for (i = 0; i < local_vlen; i++, local_m++, targ_m++) {
+		for (i = 0; i < local_vlen; i++, local_m++) {
+			const struct btf_member *targ_m = btf_members(targ_type);
+			bool matched = false;
+
 			btf_type_skip_modifiers(local_btf, local_m->type, &local_id);
-			btf_type_skip_modifiers(targ_btf, targ_m->type, &targ_id);
-			err = __bpf_core_types_match(local_btf, local_id, targ_btf, targ_id,
-						     level - 1);
-			if (err <= 0)
-				return err;
+			for (j = 0; j < targ_vlen; j++, targ_m++) {
+				const char *local_n = btf_name_by_offset(local_btf, local_m->name_off);
+				const char *targ_n = btf_name_by_offset(targ_btf, targ_m->name_off);
+
+				if (strcmp(local_n, targ_n) != 0) {
+					continue;
+				}
+
+				btf_type_skip_modifiers(targ_btf, targ_m->type, &targ_id);
+				err = __bpf_core_types_match(local_btf, local_id, targ_btf, targ_id,
+							     level - 1);
+				if (err > 0) {
+					matched = true;
+					break;
+				}
+			}
+
+			if (!matched)
+				return 0;
 		}
 		return 1;
 	}
-	case BTF_KIND_INT:
-		/* just reject deprecated bitfield-like integers; all other
-		 * integers are defined as matching each other
-		 */
-		return btf_int_offset(local_type) == 0 && btf_int_offset(targ_type) == 0;
+	case BTF_KIND_INT: {
+		u8 local_sgn = btf_int_encoding(local_type) & BTF_INT_SIGNED;
+		u8 targ_sgn = btf_int_encoding(targ_type) & BTF_INT_SIGNED;
+		return btf_int_bits(local_type) == btf_int_bits(targ_type) && local_sgn == targ_sgn;
+	}
 	case BTF_KIND_PTR:
 		local_id = local_type->type;
 		targ_id = targ_type->type;
@@ -7505,8 +7532,8 @@ recur:
 	case BTF_KIND_FUNC_PROTO: {
 		struct btf_param *local_p = btf_params(local_type);
 		struct btf_param *targ_p = btf_params(targ_type);
-		__u16 local_vlen = btf_vlen(local_type);
-		__u16 targ_vlen = btf_vlen(targ_type);
+		u16 local_vlen = btf_vlen(local_type);
+		u16 targ_vlen = btf_vlen(targ_type);
 		int i, err;
 
 		if (local_vlen != targ_vlen)
@@ -7531,8 +7558,8 @@ recur:
 	}
 }
 
-int bpf_core_types_match(const struct btf *local_btf, __u32 local_id,
-			 const struct btf *targ_btf, __u32 targ_id)
+int bpf_core_types_match(const struct btf *local_btf, u32 local_id,
+			 const struct btf *targ_btf, u32 targ_id)
 {
 	return __bpf_core_types_match(local_btf, local_id,
 					   targ_btf, targ_id,

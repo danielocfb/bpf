@@ -1857,6 +1857,99 @@ static int btfgen_record_field_relo(struct btfgen_info *info, struct bpf_core_sp
 	return 0;
 }
 
+/* Mark types, members, and member types. Compared to btfgen_record_field_relo,
+ * this function does not rely on the target spec for inferring members, but
+ * uses the associated BTF.
+ */
+static int btfgen_mark_types_match(struct btfgen_info *info, unsigned int type_id)
+{
+	const struct btf_type *btf_type;
+	struct btf *btf = info->src_btf;
+	struct btf_type *cloned_type;
+	int i, err;
+
+	if (type_id == 0)
+		return 0;
+
+	btf_type = btf__type_by_id(btf, type_id);
+	/* mark type on cloned BTF as used */
+	cloned_type = (struct btf_type *) btf__type_by_id(info->marked_btf, type_id);
+	cloned_type->name_off = MARKED;
+
+	switch (btf_kind(btf_type)) {
+	case BTF_KIND_UNKN:
+	case BTF_KIND_INT:
+	case BTF_KIND_FLOAT:
+	case BTF_KIND_ENUM:
+		break;
+	case BTF_KIND_STRUCT:
+	case BTF_KIND_UNION: {
+		struct btf_member *m = btf_members(btf_type);
+		__u16 vlen = btf_vlen(btf_type);
+
+		for (i = 0; i < vlen; i++, m++) {
+			/* mark member */
+			btfgen_mark_member(info, type_id, i);
+
+			/* mark member's type */
+			err = btfgen_mark_types_match(info, m->type);
+			if (err)
+				return err;
+		}
+		break;
+	}
+	case BTF_KIND_CONST:
+	case BTF_KIND_VOLATILE:
+	case BTF_KIND_TYPEDEF:
+	case BTF_KIND_PTR:
+		return btfgen_mark_types_match(info, btf_type->type);
+	case BTF_KIND_ARRAY: {
+		struct btf_array *array;
+		array = btf_array(btf_type);
+
+		/* mark array type */
+		err = btfgen_mark_types_match(info, array->type);
+		/* mark array's index type */
+		err = err ? : btfgen_mark_types_match(info, array->index_type);
+		if (err)
+			return err;
+		break;
+	}
+	case BTF_KIND_FUNC_PROTO: {
+		struct btf_param *param;
+		/* mark ret type */
+		err = btfgen_mark_types_match(info, btf_type->type);
+		if (err)
+			return err;
+
+		/* mark parameters types */
+		param = btf_params(btf_type);
+		for (i = 0; i < btf_vlen(btf_type); i++) {
+			err = btfgen_mark_types_match(info, param->type);
+			if (err)
+				return err;
+			param++;
+		}
+		break;
+	}
+	/* tells if some other type needs to be handled */
+	default:
+		p_err("unsupported kind: %s (%d)", btf_kind_str(btf_type), type_id);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/* Mark types, members, and member types. Compared to btfgen_record_field_relo,
+ * this function does not rely on the target spec for inferring members, but
+ * uses the associated BTF.
+ */
+static int btfgen_record_types_match_relo(struct btfgen_info *info, struct bpf_core_spec *targ_spec)
+{
+	return btfgen_mark_types_match(info, targ_spec->root_type_id);
+}
+
 static int btfgen_record_type_relo(struct btfgen_info *info, struct bpf_core_spec *targ_spec)
 {
 	return btfgen_mark_type(info, targ_spec->root_type_id, true);
@@ -1881,9 +1974,10 @@ static int btfgen_record_reloc(struct btfgen_info *info, struct bpf_core_spec *r
 		return 0;
 	case BPF_CORE_TYPE_ID_TARGET:
 	case BPF_CORE_TYPE_EXISTS:
-	case BPF_CORE_TYPE_MATCHES:
 	case BPF_CORE_TYPE_SIZE:
 		return btfgen_record_type_relo(info, res);
+	case BPF_CORE_TYPE_MATCHES:
+		return btfgen_record_types_match_relo(info, res);
 	case BPF_CORE_ENUMVAL_EXISTS:
 	case BPF_CORE_ENUMVAL_VALUE:
 		return btfgen_record_enumval_relo(info, res);
