@@ -7430,6 +7430,7 @@ size_t bpf_core_essential_name_len(const char *name)
 }
 
 struct bpf_cand_cache {
+	enum bpf_core_relo_kind relo_kind;
 	const char *name;
 	u32 name_len;
 	u16 kind;
@@ -7496,7 +7497,12 @@ static void print_cand_cache(struct bpf_verifier_log *log)
 
 static u32 hash_cands(struct bpf_cand_cache *cands)
 {
-	return jhash(cands->name, cands->name_len, 0);
+	bool matches = cands->relo_kind == BPF_CORE_TYPE_MATCHES;
+	u32 hash = 0;
+
+	hash = jhash(&matches, sizeof(matches), hash);
+	hash = jhash(cands->name, cands->name_len, hash);
+	return hash;
 }
 
 static struct bpf_cand_cache *check_cand_cache(struct bpf_cand_cache *cands,
@@ -7506,6 +7512,8 @@ static struct bpf_cand_cache *check_cand_cache(struct bpf_cand_cache *cands,
 	struct bpf_cand_cache *cc = cache[hash_cands(cands) % cache_size];
 
 	if (cc && cc->name_len == cands->name_len &&
+	    (cc->relo_kind == BPF_CORE_TYPE_MATCHES) ==
+	    (cands->relo_kind == BPF_CORE_TYPE_MATCHES) &&
 	    !strncmp(cc->name, cands->name, cands->name_len))
 		return cc;
 	return NULL;
@@ -7635,7 +7643,7 @@ bpf_core_add_cands(struct bpf_cand_cache *cands, const struct btf *targ_btf,
 }
 
 static struct bpf_cand_cache *
-bpf_core_find_cands(struct bpf_core_ctx *ctx, u32 local_type_id)
+bpf_core_find_cands(struct bpf_core_ctx *ctx, const struct bpf_core_relo *relo)
 {
 	struct bpf_cand_cache *cands, *cc, local_cand = {};
 	const struct btf *local_btf = ctx->btf;
@@ -7652,7 +7660,7 @@ bpf_core_find_cands(struct bpf_core_ctx *ctx, u32 local_type_id)
 	if (!main_btf)
 		return ERR_PTR(-EINVAL);
 
-	local_type = btf_type_by_id(local_btf, local_type_id);
+	local_type = btf_type_by_id(local_btf, relo->type_id);
 	if (!local_type)
 		return ERR_PTR(-EINVAL);
 
@@ -7662,6 +7670,7 @@ bpf_core_find_cands(struct bpf_core_ctx *ctx, u32 local_type_id)
 	local_essent_len = bpf_core_essential_name_len(name);
 
 	cands = &local_cand;
+	cands->relo_kind = relo->kind;
 	cands->name = name;
 	cands->kind = btf_kind(local_type);
 	cands->name_len = local_essent_len;
@@ -7745,10 +7754,10 @@ int bpf_core_apply(struct bpf_core_ctx *ctx, const struct bpf_core_relo *relo,
 		int i;
 
 		mutex_lock(&cand_cache_mutex);
-		cc = bpf_core_find_cands(ctx, relo->type_id);
+		cc = bpf_core_find_cands(ctx, relo);
 		if (IS_ERR(cc)) {
-			bpf_log(ctx->log, "target candidate search failed for %d\n",
-				relo->type_id);
+			bpf_log(ctx->log, "target candidate search failed for %d (kind: %d)\n",
+				relo->type_id, relo->kind);
 			err = PTR_ERR(cc);
 			goto out;
 		}
@@ -7764,6 +7773,7 @@ int bpf_core_apply(struct bpf_core_ctx *ctx, const struct bpf_core_relo *relo,
 				"CO-RE relocating %s %s: found target candidate [%d]\n",
 				btf_kind_str[cc->kind], cc->name, cc->cands[i].id);
 			cands.cands[i].btf = cc->cands[i].btf;
+			cands.cands[i].relo_kind = relo->kind;
 			cands.cands[i].type_id = cc->cands[i].id;
 		}
 		cands.len = cc->cnt;

@@ -1662,17 +1662,19 @@ struct btfgen_info {
 
 static size_t btfgen_hash_fn(const void *key, void *ctx)
 {
-	return (size_t)key;
+	const struct bpf_core_relo *relo = key;
+
+	return (size_t)relo->type_id;
 }
 
 static bool btfgen_equal_fn(const void *k1, const void *k2, void *ctx)
 {
-	return k1 == k2;
-}
+	const struct bpf_core_relo *relo1 = k1;
+	const struct bpf_core_relo *relo2 = k2;
+	bool m1 = relo1->kind == BPF_CORE_TYPE_MATCHES;
+	bool m2 = relo2->kind == BPF_CORE_TYPE_MATCHES;
 
-static void *u32_as_hash_key(__u32 x)
-{
-	return (void *)(uintptr_t)x;
+	return m1 == m2 && relo1->type_id == relo2->type_id;
 }
 
 static void btfgen_free_info(struct btfgen_info *info)
@@ -1890,7 +1892,8 @@ static int btfgen_record_reloc(struct btfgen_info *info, struct bpf_core_spec *r
 }
 
 static struct bpf_core_cand_list *
-btfgen_find_cands(const struct btf *local_btf, const struct btf *targ_btf, __u32 local_id)
+btfgen_find_cands(const struct btf *local_btf, const struct btf *targ_btf,
+		  const struct bpf_core_relo *relo)
 {
 	const struct btf_type *local_type;
 	struct bpf_core_cand_list *cands = NULL;
@@ -1900,9 +1903,10 @@ btfgen_find_cands(const struct btf *local_btf, const struct btf *targ_btf, __u32
 	int err;
 
 	local_cand.btf = local_btf;
-	local_cand.type_id = local_id;
+	local_cand.relo_kind = relo->kind;
+	local_cand.type_id = relo->type_id;
 
-	local_type = btf__type_by_id(local_btf, local_id);
+	local_type = btf__type_by_id(local_btf, local_cand.type_id);
 	if (!local_type) {
 		err = -EINVAL;
 		goto err_out;
@@ -1919,7 +1923,7 @@ btfgen_find_cands(const struct btf *local_btf, const struct btf *targ_btf, __u32
 	if (!cands)
 		return NULL;
 
-	err = bpf_core_add_cands(&local_cand, local_essent_len, targ_btf, "vmlinux", 1, cands);
+	err = bpf_core_add_cands(&local_cand, local_essent_len, relo->kind, targ_btf, "vmlinux", 1, cands);
 	if (err)
 		goto err_out;
 
@@ -1976,18 +1980,17 @@ static int btfgen_record_obj(struct btfgen_info *info, const char *obj_path)
 			struct bpf_core_spec specs_scratch[3] = {};
 			struct bpf_core_relo_res targ_res = {};
 			struct bpf_core_cand_list *cands = NULL;
-			const void *type_key = u32_as_hash_key(relo->type_id);
 			const char *sec_name = btf__name_by_offset(btf, sec->sec_name_off);
 
 			if (relo->kind != BPF_CORE_TYPE_ID_LOCAL &&
-			    !hashmap__find(cand_cache, type_key, (void **)&cands)) {
-				cands = btfgen_find_cands(btf, info->src_btf, relo->type_id);
+			    !hashmap__find(cand_cache, (void *)relo, (void **)&cands)) {
+				cands = btfgen_find_cands(btf, info->src_btf, relo);
 				if (!cands) {
 					err = -errno;
 					goto out;
 				}
 
-				err = hashmap__set(cand_cache, type_key, cands, NULL, NULL);
+				err = hashmap__set(cand_cache, (void *)relo, cands, NULL, NULL);
 				if (err)
 					goto out;
 			}

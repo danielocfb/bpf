@@ -8,6 +8,7 @@
 
 struct bpf_core_cand {
 	const struct btf *btf;
+	enum bpf_core_relo_kind relo_kind;
 	__u32 type_id;
 };
 

@@ -5459,6 +5459,7 @@ void bpf_core_free_cands(struct bpf_core_cand_list *cands)
 
 int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 		       size_t local_essent_len,
+		       enum bpf_core_relo_kind relo_kind,
 		       const struct btf *targ_btf,
 		       const char *targ_btf_name,
 		       int targ_start_id,
@@ -5501,6 +5502,7 @@ int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 
 		cand = &new_cands[cands->len];
 		cand->btf = targ_btf;
+		cand->relo_kind = relo_kind;
 		cand->type_id = i;
 
 		cands->cands = new_cands;
@@ -5602,7 +5604,7 @@ err_out:
 }
 
 static struct bpf_core_cand_list *
-bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, __u32 local_type_id)
+bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, const struct bpf_core_relo *relo)
 {
 	struct bpf_core_cand local_cand = {};
 	struct bpf_core_cand_list *cands;
@@ -5613,8 +5615,9 @@ bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, __u32 l
 	int err, i;
 
 	local_cand.btf = local_btf;
-	local_cand.type_id = local_type_id;
-	local_t = btf__type_by_id(local_btf, local_type_id);
+	local_cand.relo_kind = relo->kind;
+	local_cand.type_id = relo->type_id;
+	local_t = btf__type_by_id(local_btf, relo->type_id);
 	if (!local_t)
 		return ERR_PTR(-EINVAL);
 
@@ -5629,7 +5632,7 @@ bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, __u32 l
 
 	/* Attempt to find target candidates in vmlinux BTF first */
 	main_btf = obj->btf_vmlinux_override ?: obj->btf_vmlinux;
-	err = bpf_core_add_cands(&local_cand, local_essent_len, main_btf, "vmlinux", 1, cands);
+	err = bpf_core_add_cands(&local_cand, local_essent_len, relo->kind, main_btf, "vmlinux", 1, cands);
 	if (err)
 		goto err_out;
 
@@ -5647,7 +5650,7 @@ bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, __u32 l
 		goto err_out;
 
 	for (i = 0; i < obj->btf_module_cnt; i++) {
-		err = bpf_core_add_cands(&local_cand, local_essent_len,
+		err = bpf_core_add_cands(&local_cand, local_essent_len, relo->kind,
 					 obj->btf_modules[i].btf,
 					 obj->btf_modules[i].name,
 					 btf__type_cnt(obj->btf_vmlinux),
@@ -5758,17 +5761,19 @@ recur:
 
 static size_t bpf_core_hash_fn(const void *key, void *ctx)
 {
-	return (size_t)key;
+	const struct bpf_core_relo *relo = key;
+
+	return (size_t)relo->type_id;
 }
 
 static bool bpf_core_equal_fn(const void *k1, const void *k2, void *ctx)
 {
-	return k1 == k2;
-}
+	const struct bpf_core_relo *relo1 = k1;
+	const struct bpf_core_relo *relo2 = k2;
+	bool m1 = relo1->kind == BPF_CORE_TYPE_MATCHES;
+	bool m2 = relo2->kind == BPF_CORE_TYPE_MATCHES;
 
-static void *u32_as_hash_key(__u32 x)
-{
-	return (void *)(uintptr_t)x;
+	return m1 == m2 && relo1->type_id == relo2->type_id;
 }
 
 static int record_relo_core(struct bpf_program *prog,
@@ -5813,7 +5818,6 @@ static int bpf_core_resolve_relo(struct bpf_program *prog,
 				 struct bpf_core_relo_res *targ_res)
 {
 	struct bpf_core_spec specs_scratch[3] = {};
-	const void *type_key = u32_as_hash_key(relo->type_id);
 	struct bpf_core_cand_list *cands = NULL;
 	const char *prog_name = prog->name;
 	const struct btf_type *local_type;
@@ -5830,15 +5834,15 @@ static int bpf_core_resolve_relo(struct bpf_program *prog,
 		return -EINVAL;
 
 	if (relo->kind != BPF_CORE_TYPE_ID_LOCAL &&
-	    !hashmap__find(cand_cache, type_key, (void **)&cands)) {
-		cands = bpf_core_find_cands(prog->obj, local_btf, local_id);
+	    !hashmap__find(cand_cache, (void *)relo, (void **)&cands)) {
+		cands = bpf_core_find_cands(prog->obj, local_btf, relo);
 		if (IS_ERR(cands)) {
 			pr_warn("prog '%s': relo #%d: target candidate search failed for [%d] %s %s: %ld\n",
 				prog_name, relo_idx, local_id, btf_kind_str(local_type),
 				local_name, PTR_ERR(cands));
 			return PTR_ERR(cands);
 		}
-		err = hashmap__set(cand_cache, type_key, cands, NULL, NULL);
+		err = hashmap__set(cand_cache, (void *)relo, cands, NULL, NULL);
 		if (err) {
 			bpf_core_free_cands(cands);
 			return err;

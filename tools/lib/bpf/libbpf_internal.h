@@ -566,6 +566,7 @@ static inline int ensure_good_fd(int fd)
 /* The following two functions are exposed to bpftool */
 int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 		       size_t local_essent_len,
+		       enum bpf_core_relo_kind relo_kind,
 		       const struct btf *targ_btf,
 		       const char *targ_btf_name,
 		       int targ_start_id,
