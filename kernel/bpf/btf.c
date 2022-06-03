@@ -7764,7 +7764,7 @@ int bpf_core_apply(struct bpf_core_ctx *ctx, const struct bpf_core_relo *relo,
 				"CO-RE relocating %s %s: found target candidate [%d]\n",
 				btf_kind_str[cc->kind], cc->name, cc->cands[i].id);
 			cands.cands[i].btf = cc->cands[i].btf;
-			cands.cands[i].id = cc->cands[i].id;
+			cands.cands[i].type_id = cc->cands[i].id;
 		}
 		cands.len = cc->cnt;
 		/* cand_cache_mutex needs to span the cache lookup and

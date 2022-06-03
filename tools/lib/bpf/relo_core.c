@@ -1225,7 +1225,7 @@ int bpf_core_calc_relo_insn(const char *prog_name,
 
 	for (i = 0, j = 0; i < cands->len; i++) {
 		err = bpf_core_spec_match(local_spec, cands->cands[i].btf,
-					  cands->cands[i].id, cand_spec);
+					  cands->cands[i].type_id, cand_spec);
 		if (err < 0) {
 			bpf_core_format_spec(spec_buf, sizeof(spec_buf), cand_spec);
 			pr_warn("prog '%s': relo #%d: error matching candidate #%d %s: %d\n ",

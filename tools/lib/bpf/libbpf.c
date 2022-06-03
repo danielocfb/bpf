@@ -5470,7 +5470,7 @@ int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 	size_t targ_essent_len;
 	int n, i;
 
-	local_t = btf__type_by_id(local_cand->btf, local_cand->id);
+	local_t = btf__type_by_id(local_cand->btf, local_cand->type_id);
 	local_name = btf__str_by_offset(local_cand->btf, local_t->name_off);
 
 	n = btf__type_cnt(targ_btf);
@@ -5491,7 +5491,7 @@ int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 			continue;
 
 		pr_debug("CO-RE relocating [%d] %s %s: found target candidate [%d] %s %s in [%s]\n",
-			 local_cand->id, btf_kind_str(local_t),
+			 local_cand->type_id, btf_kind_str(local_t),
 			 local_name, i, btf_kind_str(t), targ_name,
 			 targ_btf_name);
 		new_cands = libbpf_reallocarray(cands->cands, cands->len + 1,
@@ -5501,7 +5501,7 @@ int bpf_core_add_cands(struct bpf_core_cand *local_cand,
 
 		cand = &new_cands[cands->len];
 		cand->btf = targ_btf;
-		cand->id = i;
+		cand->type_id = i;
 
 		cands->cands = new_cands;
 		cands->len++;
@@ -5613,7 +5613,7 @@ bpf_core_find_cands(struct bpf_object *obj, const struct btf *local_btf, __u32 l
 	int err, i;
 
 	local_cand.btf = local_btf;
-	local_cand.id = local_type_id;
+	local_cand.type_id = local_type_id;
 	local_t = btf__type_by_id(local_btf, local_type_id);
 	if (!local_t)
 		return ERR_PTR(-EINVAL);

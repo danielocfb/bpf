@@ -1900,7 +1900,7 @@ btfgen_find_cands(const struct btf *local_btf, const struct btf *targ_btf, __u32
 	int err;
 
 	local_cand.btf = local_btf;
-	local_cand.id = local_id;
+	local_cand.type_id = local_id;
 
 	local_type = btf__type_by_id(local_btf, local_id);
 	if (!local_type) {
