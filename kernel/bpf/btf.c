@@ -7413,7 +7413,7 @@ end:
 }
 EXPORT_SYMBOL_GPL(register_btf_id_dtor_kfuncs);
 
-#define MAX_TYPES_ARE_COMPAT_DEPTH 2
+#define MAX_TYPES_ARE_COMPAT_DEPTH 32
 
 static
 int __bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
@@ -7421,7 +7421,6 @@ int __bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
 				int level)
 {
 	const struct btf_type *local_type, *targ_type;
-	int depth = 32; /* max recursion depth */
 
 	/* caller made sure that names match (ignoring flavor suffix) */
 	local_type = btf_type_by_id(local_btf, local_id);
@@ -7430,8 +7429,8 @@ int __bpf_core_types_are_compat(const struct btf *local_btf, __u32 local_id,
 		return 0;
 
 recur:
-	depth--;
-	if (depth < 0)
+	level--;
+	if (level < 0)
 		return -EINVAL;
 
 	local_type = btf_type_skip_modifiers(local_btf, local_id, &local_id);
@@ -7474,14 +7473,11 @@ recur:
 			return 0;
 
 		for (i = 0; i < local_vlen; i++, local_p++, targ_p++) {
-			if (level <= 0)
-				return -EINVAL;
-
 			btf_type_skip_modifiers(local_btf, local_p->type, &local_id);
 			btf_type_skip_modifiers(targ_btf, targ_p->type, &targ_id);
 			err = __bpf_core_types_are_compat(local_btf, local_id,
 							  targ_btf, targ_id,
-							  level - 1);
+							  level);
 			if (err <= 0)
 				return err;
 		}
