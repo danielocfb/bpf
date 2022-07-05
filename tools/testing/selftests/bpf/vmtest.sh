@@ -30,8 +30,7 @@ DEFAULT_COMMAND="./test_progs"
 MOUNT_DIR="mnt"
 ROOTFS_IMAGE="root.img"
 OUTPUT_DIR="$HOME/.bpf_selftests"
-KCONFIG_URL="https://raw.githubusercontent.com/libbpf/libbpf/master/travis-ci/vmtest/configs/config-latest.${ARCH}"
-KCONFIG_API_URL="https://api.github.com/repos/libbpf/libbpf/contents/travis-ci/vmtest/configs/config-latest.${ARCH}"
+KCONFIG_REL_PATH="tools/testing/selftests/bpf/configs/config-latest.${ARCH}"
 INDEX_URL="https://raw.githubusercontent.com/libbpf/ci/master/INDEX"
 NUM_COMPILE_JOBS="$(nproc)"
 LOG_FILE_BASE="$(date +"bpf_selftests.%Y-%m-%d_%H-%M-%S")"
@@ -271,20 +270,17 @@ is_rel_path()
 
 update_kconfig()
 {
-	local kconfig_file="$1"
-	local update_command="curl -sLf ${KCONFIG_URL} -o ${kconfig_file}"
-	# Github does not return the "last-modified" header when retrieving the
-	# raw contents of the file. Use the API call to get the last-modified
-	# time of the kernel config and only update the config if it has been
-	# updated after the previously cached config was created. This avoids
-	# unnecessarily compiling the kernel and selftests.
+	local kernel_checkout="$1"
+	local kconfig_file="$2"
+	local kconfig_src="${kernel_checkout}/${KCONFIG_REL_PATH}"
+	local update_command="cp ${kconfig_src} ${kconfig_file}"
 	if [[ -f "${kconfig_file}" ]]; then
-		local last_modified_date="$(curl -sL -D - "${KCONFIG_API_URL}" -o /dev/null | \
-			grep "last-modified" | awk -F ': ' '{print $2}')"
-		local remote_modified_timestamp="$(date -d "${last_modified_date}" +"%s")"
-		local local_creation_timestamp="$(stat -c %Y "${kconfig_file}")"
-
-		if [[ "${remote_modified_timestamp}" -gt "${local_creation_timestamp}" ]]; then
+		local src_modified="$(stat -c %Y "${kconfig_src}")"
+		local local_modified="$(stat -c %Y "${kconfig_file}")"
+		# Only update the config if it has been updated after the
+		# previously cached config was created. This avoids
+		# unnecessarily compiling the kernel and selftests.
+		if [[ "${src_modified}" -gt "${local_modified}" ]]; then
 			${update_command}
 		fi
 	else
@@ -372,7 +368,7 @@ main()
 
 	mkdir -p "${OUTPUT_DIR}"
 	mkdir -p "${mount_dir}"
-	update_kconfig "${kconfig_file}"
+	update_kconfig "${kernel_checkout}" "${kconfig_file}"
 
 	recompile_kernel "${kernel_checkout}" "${make_command}"
 
