@@ -26,7 +26,7 @@ x86_64)
 	exit 1
 	;;
 esac
-DEFAULT_COMMAND="./test_progs"
+DEFAULT_COMMAND="\${ALLOWLIST} ./test_progs"
 MOUNT_DIR="mnt"
 ROOTFS_IMAGE="root.img"
 OUTPUT_DIR="$HOME/.bpf_selftests"
@@ -61,6 +61,8 @@ or
 
 Options:
 
+	-a)		Honor in-tree allow lists.
+	-d)		Honor in-tree deny lists.
 	-i)		Update the rootfs image with a newer version.
 	-o)		Update the output directory (default: ${OUTPUT_DIR})
 	-j)		Number of jobs for compilation, similar to -j in make
@@ -321,6 +323,14 @@ catch()
 	exit ${exit_code}
 }
 
+read_lists() {
+	(for path in "$@"; do
+		if [[ -s "$path" ]]; then
+			cat "$path"
+		fi;
+	done) | cut -d'#' -f1 | tr -s ' \t\n' ','
+}
+
 main()
 {
 	local script_dir="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -333,7 +343,7 @@ main()
 	local exit_command="poweroff -f"
 	local debug_shell="no"
 
-	while getopts ':hskio:j:' opt; do
+	while getopts 'ad:hskio:j:' opt; do
 		case ${opt} in
 		i)
 			update_image="yes"
@@ -348,6 +358,10 @@ main()
 			command=""
 			debug_shell="yes"
 			exit_command="bash"
+			;;
+		d)
+			;;
+		a)
 			;;
 		h)
 			usage
