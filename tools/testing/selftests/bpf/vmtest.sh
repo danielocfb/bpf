@@ -40,7 +40,7 @@ EXIT_STATUS_FILE="${LOG_FILE_BASE}.exit_status"
 usage()
 {
 	cat <<EOF
-Usage: $0 [-i] [-s] [-d <output_dir>] -- [<command>]
+Usage: $0 [-i] [-s] [-o <output_dir>] -- [<command>]
 
 <command> is the command you would normally run when you are in
 tools/testing/selftests/bpf. e.g:
@@ -62,7 +62,7 @@ or
 Options:
 
 	-i)		Update the rootfs image with a newer version.
-	-d)		Update the output directory (default: ${OUTPUT_DIR})
+	-o)		Update the output directory (default: ${OUTPUT_DIR})
 	-j)		Number of jobs for compilation, similar to -j in make
 			(default: ${NUM_COMPILE_JOBS})
 	-s)		Instead of powering off the VM, start an interactive
@@ -333,12 +333,12 @@ main()
 	local exit_command="poweroff -f"
 	local debug_shell="no"
 
-	while getopts ':hskid:j:' opt; do
+	while getopts ':hskio:j:' opt; do
 		case ${opt} in
 		i)
 			update_image="yes"
 			;;
-		d)
+		o)
 			OUTPUT_DIR="$OPTARG"
 			;;
 		j)
