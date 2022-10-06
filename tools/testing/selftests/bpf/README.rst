@@ -7,12 +7,16 @@ General instructions on running selftests can be found in
 __ /Documentation/bpf/bpf_devel_QA.rst#q-how-to-run-bpf-selftests
 
 =========================
+=========================
+
+=========================
 Running Selftests in a VM
 =========================
 
 It's now possible to run the selftests using ``tools/testing/selftests/bpf/vmtest.sh``.
 The script tries to ensure that the tests are run with the same environment as they
-would be run post-submit in the CI used by the Maintainers.
+would be run post-submit in the CI used by the Maintainers, with the exception
+that allow and deny lists are not automatically honored.
 
 This script uses the in-tree kernel configuration and download a VM userspace
 image from the system used by the CI. It builds the kernel (without overwriting
