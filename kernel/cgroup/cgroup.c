@@ -5227,6 +5227,10 @@ static void css_free_rwork_fn(struct work_struct *work)
 	struct cgroup_subsys *ss = css->ss;
 	struct cgroup *cgrp = css->cgroup;
 
+#ifdef CONFIG_BPF_SYSCALL
+	bpf_cgrp_storage_free(cgrp);
+#endif
+
 	percpu_ref_exit(&css->refcnt);
 
 	if (ss) {
