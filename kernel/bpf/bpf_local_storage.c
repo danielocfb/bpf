@@ -346,7 +346,7 @@ int bpf_local_storage_alloc(void *owner,
 		/* Note that even first_selem was linked to smap's
 		 * bucket->list, first_selem can be freed immediately
 		 * (instead of kfree_rcu) because
-		 * bpf_local_storage_map_free() does a
+		 * __bpf_local_storage_map_free() does a
 		 * synchronize_rcu_mult (waiting for both sleepable and
 		 * normal programs) before walking the bucket->list.
 		 * Hence, no one is accessing selem from the
@@ -500,7 +500,7 @@ unlock_err:
 	return ERR_PTR(err);
 }
 
-u16 bpf_local_storage_cache_idx_get(struct bpf_local_storage_cache *cache)
+static u16 bpf_local_storage_cache_idx_get(struct bpf_local_storage_cache *cache)
 {
 	u64 min_usage = U64_MAX;
 	u16 i, res = 0;
@@ -524,16 +524,16 @@ u16 bpf_local_storage_cache_idx_get(struct bpf_local_storage_cache *cache)
 	return res;
 }
 
-void bpf_local_storage_cache_idx_free(struct bpf_local_storage_cache *cache,
-				      u16 idx)
+static void bpf_local_storage_cache_idx_free(struct bpf_local_storage_cache *cache,
+					     u16 idx)
 {
 	spin_lock(&cache->idx_lock);
 	cache->idx_usage_counts[idx]--;
 	spin_unlock(&cache->idx_lock);
 }
 
-void bpf_local_storage_map_free(struct bpf_local_storage_map *smap,
-				int __percpu *busy_counter)
+static void __bpf_local_storage_map_free(struct bpf_local_storage_map *smap,
+					 int __percpu *busy_counter)
 {
 	struct bpf_local_storage_elem *selem;
 	struct bpf_local_storage_map_bucket *b;
@@ -613,7 +613,7 @@ int bpf_local_storage_map_alloc_check(union bpf_attr *attr)
 	return 0;
 }
 
-struct bpf_local_storage_map *bpf_local_storage_map_alloc(union bpf_attr *attr)
+static struct bpf_local_storage_map *__bpf_local_storage_map_alloc(union bpf_attr *attr)
 {
 	struct bpf_local_storage_map *smap;
 	unsigned int i;
@@ -662,4 +662,29 @@ int bpf_local_storage_map_check_btf(const struct bpf_map *map,
 		return -EINVAL;
 
 	return 0;
+}
+
+struct bpf_map *
+bpf_local_storage_map_alloc(union bpf_attr *attr,
+			    struct bpf_local_storage_cache *cache)
+{
+	struct bpf_local_storage_map *smap;
+
+	smap = __bpf_local_storage_map_alloc(attr);
+	if (IS_ERR(smap))
+		return ERR_CAST(smap);
+
+	smap->cache_idx = bpf_local_storage_cache_idx_get(cache);
+	return &smap->map;
+}
+
+void bpf_local_storage_map_free(struct bpf_map *map,
+				struct bpf_local_storage_cache *cache,
+				int __percpu *busy_counter)
+{
+	struct bpf_local_storage_map *smap;
+
+	smap = (struct bpf_local_storage_map *)map;
+	bpf_local_storage_cache_idx_free(cache, smap->cache_idx);
+	__bpf_local_storage_map_free(smap, busy_counter);
 }
