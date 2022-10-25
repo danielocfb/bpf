@@ -2776,7 +2776,7 @@ int bpf_kprobe_multi_link_attach(const union bpf_attr *attr, struct bpf_prog *pr
 	err = register_fprobe_ips(&link->fp, addrs, cnt);
 	if (err) {
 		bpf_link_cleanup(&link_primer);
-		return err;
+		goto error;
 	}
 
 	return bpf_link_settle(&link_primer);
