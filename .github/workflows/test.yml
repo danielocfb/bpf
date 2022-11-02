@@ -1,0 +1,93 @@
+name: bpf-ci
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-test-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  llvm-toolchain:
+    runs-on: ubuntu-latest
+    outputs:
+      llvm: ${{ steps.llvm-toolchain-impl.outputs.version }}
+    steps:
+      - id: llvm-version
+        uses: libbpf/ci/get-llvm-version@master
+      - id: llvm-toolchain-impl
+        shell: bash
+        run: echo "version=llvm-${{ steps.llvm-version.outputs.version }}" >> $GITHUB_OUTPUT
+  set-matrix:
+    needs: llvm-toolchain
+    runs-on: ubuntu-latest
+    outputs:
+      build-matrix: ${{ steps.set-matrix-impl.outputs.build_matrix }}
+      test-matrix: ${{ steps.set-matrix-impl.outputs.test_matrix }}
+    steps:
+      - id: set-matrix-impl
+        shell: python3 -I {0}
+        run: |
+          from json import dumps
+          import os
+
+          def set_output(name, value):
+            """Write an output variable to the GitHub output file."""
+            with open(os.getenv("GITHUB_OUTPUT"), "a") as f:
+              f.write(f"{name}={value}\n")
+
+          matrix = [
+            {"kernel": "LATEST", "runs_on": ["ubuntu-latest", "self-hosted"], "arch": "x86_64", "toolchain": "gcc"},
+            {"kernel": "LATEST", "runs_on": ["ubuntu-latest", "self-hosted"], "arch": "x86_64", "toolchain": "${{ needs.llvm-toolchain.outputs.llvm }}"},
+          ]
+          self_hosted_repos = [
+            "kernel-patches/bpf",
+            "kernel-patches/vmtest",
+          ]
+
+          # Only a few repository within "kernel-patches" use self-hosted runners.
+          if "${{ github.repository_owner }}" != "kernel-patches" or "${{ github.repository }}" not in self_hosted_repos:
+            # Outside of those repositories, remove the self-hosted label and skip
+            # any testing on s390x, as no suitable runners will be available.
+            for idx in range(len(matrix) - 1, -1, -1):
+              if "z15" in matrix[idx]["runs_on"]:
+                del matrix[idx]
+              else:
+                matrix[idx]["runs_on"].remove("self-hosted")
+
+          build_matrix = {"include": matrix}
+          set_output("build_matrix", dumps(build_matrix))
+
+          tests = ["test_progs", "test_progs_no_alu32", "test_maps", "test_verifier"]
+          test_matrix = {"include": [{**config, **{"test": test}}
+                                      for config in matrix
+                                        for test in tests]}
+          set_output("test_matrix", dumps(test_matrix))
+  build:
+    name: build for ${{ matrix.arch }} with ${{ matrix.toolchain }}
+    needs: set-matrix
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.set-matrix.outputs.build-matrix) }}
+    env:
+      KERNEL: ${{ matrix.kernel }}
+      REPO_ROOT: ${{ github.workspace }}
+      REPO_PATH: ""
+    steps:
+      - run: echo "would build now"
+  test:
+    name: ${{ matrix.test }} on ${{ matrix.arch }} with ${{ matrix.toolchain }}
+    needs: [set-matrix, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.set-matrix.outputs.test-matrix) }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 100
+    env:
+      KERNEL: ${{ matrix.kernel }}
+      REPO_ROOT: ${{ github.workspace }}
+      REPO_PATH: ""
+    steps:
+      - run: echo "would test now"
