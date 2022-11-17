@@ -5579,6 +5579,11 @@ static u32 get_ctx_arg_idx(struct btf *btf, const struct btf_type *func_proto,
 	return nr_args + 1;
 }
 
+static bool prog_type_args_trusted(enum bpf_prog_type prog_type)
+{
+	return prog_type == BPF_PROG_TYPE_TRACING || prog_type == BPF_PROG_TYPE_STRUCT_OPS;
+}
+
 bool btf_ctx_access(int off, int size, enum bpf_access_type type,
 		    const struct bpf_prog *prog,
 		    struct bpf_insn_access_aux *info)
@@ -5722,6 +5727,9 @@ bool btf_ctx_access(int off, int size, enum bpf_access_type type,
 	}
 
 	info->reg_type = PTR_TO_BTF_ID;
+	if (prog_type_args_trusted(prog->type))
+		info->reg_type |= PTR_TRUSTED;
+
 	if (tgt_prog) {
 		enum bpf_prog_type tgt_type;
 
@@ -6558,15 +6566,26 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env,
 		/* These register types have special constraints wrt ref_obj_id
 		 * and offset checks. The rest of trusted args don't.
 		 */
-		obj_ptr = reg->type == PTR_TO_CTX || reg->type == PTR_TO_BTF_ID ||
+		obj_ptr = reg->type == PTR_TO_CTX ||
+			  base_type(reg->type) == PTR_TO_BTF_ID ||
 			  reg2btf_ids[base_type(reg->type)];
 
 		/* Check if argument must be a referenced pointer, args + i has
 		 * been verified to be a pointer (after skipping modifiers).
 		 * PTR_TO_CTX is ok without having non-zero ref_obj_id.
+		 *
+		 * All object pointers must be refcounted, other than:
+		 * - PTR_TO_CTX
+		 * - PTR_TRUSTED pointers
 		 */
-		if (is_kfunc && trusted_args && (obj_ptr && reg->type != PTR_TO_CTX) && !reg->ref_obj_id) {
-			bpf_log(log, "R%d must be referenced\n", regno);
+		if (is_kfunc &&
+		    trusted_args &&
+		    obj_ptr &&
+		    base_type(reg->type) != PTR_TO_CTX &&
+		    (!(type_flag(reg->type) & PTR_TRUSTED) ||
+		     (type_flag(reg->type) & ~PTR_TRUSTED)) &&
+		    !reg->ref_obj_id) {
+			bpf_log(log, "R%d must be referenced or trusted\n", regno);
 			return -EINVAL;
 		}
 
@@ -6646,8 +6665,8 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env,
 					i, btf_type_str(t));
 				return -EINVAL;
 			}
-		} else if (is_kfunc && (reg->type == PTR_TO_BTF_ID ||
-			   (reg2btf_ids[base_type(reg->type)] && !type_flag(reg->type)))) {
+		} else if (is_kfunc && (base_type(reg->type) == PTR_TO_BTF_ID ||
+			   (reg2btf_ids[base_type(reg->type)]))) {
 			const struct btf_type *reg_ref_t;
 			const struct btf *reg_btf;
 			const char *reg_ref_tname;
@@ -6660,7 +6679,13 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env,
 				return -EINVAL;
 			}
 
-			if (reg->type == PTR_TO_BTF_ID) {
+			if ((type_flag(reg->type) & ~PTR_TRUSTED)) {
+				bpf_log(log, "kernel function %s arg#%d pointer had unexpected modifiers %d\n",
+					func_name, i, type_flag(reg->type));
+				return -EINVAL;
+			}
+
+			if (base_type(reg->type) == PTR_TO_BTF_ID) {
 				reg_btf = reg->btf;
 				reg_ref_id = reg->btf_id;
 			} else {
@@ -6988,6 +7013,7 @@ int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog,
 			}
 
 			reg->type = PTR_TO_MEM | PTR_MAYBE_NULL;
+
 			reg->id = ++env->id_gen;
 
 			continue;
