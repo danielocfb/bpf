@@ -1,0 +1,22 @@
+name: timed
+
+on:
+  schedule:
+    # Runs each day, 3:00am.
+    - cron:  '0 3 * * *'
+
+jobs:
+  stale:
+    # This workflow gets injected into other Linux repositories and we only want
+    # it running there.
+    if: ${{ github.repository != 'kernel-patches/vmtest' }}
+    name: Cleanup stale PRs and issues
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v6.0.1
+        with:
+          close-pr-message: 'Automatically cleaning up stale PR; feel free to reopen if needed'
+          days-before-stale: 1
+          days-before-close: 1
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
