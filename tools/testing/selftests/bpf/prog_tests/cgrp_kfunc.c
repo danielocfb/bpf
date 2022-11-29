@@ -93,10 +93,10 @@ static struct {
 	const char *prog_name;
 	const char *expected_err_msg;
 } failure_tests[] = {
-	{"cgrp_kfunc_acquire_untrusted", "R1 must be referenced or trusted"},
+	{"cgrp_kfunc_acquire_untrusted", "R1 must be referenced, trusted or rcu"},
 	{"cgrp_kfunc_acquire_fp", "arg#0 pointer type STRUCT cgroup must point"},
 	{"cgrp_kfunc_acquire_unsafe_kretprobe", "reg type unsupported for arg#0 function"},
-	{"cgrp_kfunc_acquire_trusted_walked", "R1 must be referenced or trusted"},
+	{"cgrp_kfunc_acquire_trusted_walked", "R1 must be referenced, trusted or rcu"},
 	{"cgrp_kfunc_acquire_null", "arg#0 pointer type STRUCT cgroup must point"},
 	{"cgrp_kfunc_acquire_unreleased", "Unreleased reference"},
 	{"cgrp_kfunc_get_non_kptr_param", "arg#0 expected pointer to map value"},

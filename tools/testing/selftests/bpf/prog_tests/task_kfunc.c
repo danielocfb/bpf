@@ -87,10 +87,10 @@ static struct {
 	const char *prog_name;
 	const char *expected_err_msg;
 } failure_tests[] = {
-	{"task_kfunc_acquire_untrusted", "R1 must be referenced or trusted"},
+	{"task_kfunc_acquire_untrusted", "R1 must be referenced, trusted or rcu"},
 	{"task_kfunc_acquire_fp", "arg#0 pointer type STRUCT task_struct must point"},
 	{"task_kfunc_acquire_unsafe_kretprobe", "reg type unsupported for arg#0 function"},
-	{"task_kfunc_acquire_trusted_walked", "R1 must be referenced or trusted"},
+	{"task_kfunc_acquire_trusted_walked", "R1 must be referenced, trusted or rcu"},
 	{"task_kfunc_acquire_null", "arg#0 pointer type STRUCT task_struct must point"},
 	{"task_kfunc_acquire_unreleased", "Unreleased reference"},
 	{"task_kfunc_get_non_kptr_param", "arg#0 expected pointer to map value"},

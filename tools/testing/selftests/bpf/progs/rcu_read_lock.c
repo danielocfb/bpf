@@ -23,7 +23,7 @@ struct bpf_key *bpf_lookup_user_key(__u32 serial, __u64 flags) __ksym;
 void bpf_key_put(struct bpf_key *key) __ksym;
 void bpf_rcu_read_lock(void) __ksym;
 void bpf_rcu_read_unlock(void) __ksym;
-struct task_struct *bpf_task_acquire(struct task_struct *p) __ksym;
+struct task_struct *bpf_task_acquire_rcu(struct task_struct *p) __ksym;
 void bpf_task_release(struct task_struct *p) __ksym;
 
 SEC("?fentry.s/" SYS_PREFIX "sys_getpgid")
@@ -135,8 +135,11 @@ int task_acquire(void *ctx)
 	bpf_rcu_read_lock();
 	real_parent = task->real_parent;
 	/* acquire a reference which can be used outside rcu read lock region */
-	real_parent = bpf_task_acquire(real_parent);
+	real_parent = bpf_task_acquire_rcu(real_parent);
 	bpf_rcu_read_unlock();
+	if (!real_parent)
+		return 0;
+
 	(void)bpf_task_storage_get(&map_a, real_parent, 0, 0);
 	bpf_task_release(real_parent);
 	return 0;
