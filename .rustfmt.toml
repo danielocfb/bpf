@@ -1,6 +1,8 @@
 edition = "2021"
 newline_style = "Unix"
 
+#test
+
 # Unstable options that help catching some mistakes in formatting and that we may want to enable
 # when they become stable.
 #
