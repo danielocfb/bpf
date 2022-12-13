@@ -216,3 +216,87 @@
 	.result = ACCEPT,
 	.retval = 3,
 },
+{
+	"jit: PROBE_MEM_READ ldx success cases",
+	.insns = {
+	/* int *reg_9 = fp - 12;
+	 * *reg_9 = 0
+	 */
+	BPF_MOV64_REG(BPF_REG_9, BPF_REG_10),
+	BPF_ALU64_IMM(BPF_ADD, BPF_REG_9, -12),
+	BPF_ST_MEM(BPF_W, BPF_REG_9, 0, 0),
+	BPF_LD_MAP_FD(BPF_REG_6, 0),
+
+	/* long *dummy_arg = fp - 8
+	 * ret = bpf_kfunc_call_test_acquire(dummy_arg)
+	 * if (!ret) exit
+	 */
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_10),
+	BPF_ALU64_IMM(BPF_ADD, BPF_REG_1, -8),
+	BPF_ST_MEM(BPF_DW, BPF_REG_1, 0, 0),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, BPF_PSEUDO_KFUNC_CALL, 0, 0),
+	BPF_JMP_IMM(BPF_JNE, BPF_REG_0, 0, 5),
+	BPF_EXIT_INSN(),
+
+	/* label err_exit
+	 * err_exit:
+	 *  bpf_kfunc_call_test_release(reg_7);
+	 *  return 1;
+	 */
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_7),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, BPF_PSEUDO_KFUNC_CALL, 0, 0),
+	BPF_MOV64_IMM(BPF_REG_0, 1),
+	BPF_EXIT_INSN(),
+
+	/* reg_7 = acquired prog_test_ref_kfunc */
+	BPF_MOV64_REG(BPF_REG_7, BPF_REG_0),
+	BPF_MOV64_IMM(BPF_REG_0, 0),
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_6),
+	BPF_MOV64_REG(BPF_REG_2, BPF_REG_9),
+
+	/* ret = bpf_map_lookup_elem(&data, &zero);
+	 * if (!ret) goto err_exit;
+	 * else reg_0 = ptr_map_val containing struct prog_test_ref_kfunc
+	 */
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
+	BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, -10),
+
+	/* ret = bpf_kptr_xchg(ptr_map_val, acquired prog_test_ref_kfunc)
+	 * if(ret) goto err_exit;
+	 */
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_0),
+	BPF_MOV64_REG(BPF_REG_2, BPF_REG_7),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_kptr_xchg),
+	BPF_MOV64_REG(BPF_REG_7, BPF_REG_0),
+	BPF_JMP_IMM(BPF_JNE, BPF_REG_0, 0, -15),
+
+	/* Do a direct LD of the struct prog_test_ref_kfunc we just xchg'd into
+	 * map
+	 */
+	BPF_LD_MAP_VALUE(BPF_REG_0, 0, 0),
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_0, 0),
+	BPF_JMP_IMM(BPF_JNE, BPF_REG_0, 0, 1),
+	BPF_EXIT_INSN(),
+
+	/* Try accessing its fields - this should trigger PROBE_MEM jit
+	 * behavior
+	 *
+	 * r0 = prog_test_ref_kfunc.a * 2 + prog_test_ref_kfunc.b
+	 */
+	BPF_LDX_MEM(BPF_W, BPF_REG_1, BPF_REG_0, 0),
+	BPF_LDX_MEM(BPF_W, BPF_REG_2, BPF_REG_0, 4),
+	BPF_ALU64_IMM(BPF_ADD, BPF_REG_0, 8),
+	BPF_LDX_MEM(BPF_W, BPF_REG_0, BPF_REG_0, -8),
+	BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_1),
+	BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_2),
+	BPF_EXIT_INSN(),
+	},
+	.prog_type = BPF_PROG_TYPE_SCHED_CLS,
+	.fixup_map_probe_mem_read = { 3, 26 },
+	.fixup_kfunc_btf_id = {
+		{ "bpf_kfunc_call_test_acquire", 8 },
+		{ "bpf_kfunc_call_test_release", 12},
+	},
+	.result = ACCEPT,
+	.retval = 192,
+},
