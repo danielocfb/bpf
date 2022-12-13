@@ -172,3 +172,25 @@
 	.prog_type = BPF_PROG_TYPE_XDP,
 	.result = ACCEPT,
 },
+{
+	"jne/jeq infer not null, PTR_TO_MAP_OR_NULL unchanged with PTR_TO_BTF_ID reg",
+	.insns = {
+	BPF_MOV64_REG(BPF_REG_2, BPF_REG_10),
+	BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -8),
+	BPF_ST_MEM(BPF_DW, BPF_REG_2, 0, 0),
+	BPF_LD_MAP_FD(BPF_REG_1, 0),
+	/* r6 = bpf_map->inner_map_meta; */
+	BPF_LDX_MEM(BPF_DW, BPF_REG_6, BPF_REG_1, 8),
+	/* r0 = map_lookup_elem(r1, r2); */
+	BPF_EMIT_CALL(BPF_FUNC_map_lookup_elem),
+	/* if (r0 == r6) read *r0; */
+	BPF_JMP_REG(BPF_JEQ, BPF_REG_6, BPF_REG_0, 1),
+	BPF_EXIT_INSN(),
+	BPF_LDX_MEM(BPF_W, BPF_REG_0, BPF_REG_0, 0),
+	BPF_EXIT_INSN(),
+	},
+	.fixup_map_hash_8b = { 3 },
+	.prog_type = BPF_PROG_TYPE_XDP,
+	.result = REJECT,
+	.errstr = "R0 invalid mem access 'map_value_or_null'",
+},
