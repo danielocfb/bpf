@@ -90,6 +90,11 @@ TEST_GEN_PROGS_EXTENDED = test_sock_addr test_skb_cgroup_id_user \
 TEST_CUSTOM_PROGS = $(OUTPUT)/urandom_read $(OUTPUT)/sign-file
 TEST_GEN_FILES += liburandom_read.so
 
+ZIP ?= $(shell command -v zip;)
+ifneq ($(ZIP),)
+TEST_GEN_FILES += urandom_read.zip
+endif
+
 # Emit succinct information message describing current building step
 # $1 - generic step name (e.g., CC, LINK, etc);
 # $2 - optional "flavor" specifier; if provided, will be emitted as [flavor];
@@ -187,6 +192,10 @@ $(OUTPUT)/liburandom_read.so: urandom_read_lib1.c urandom_read_lib2.c
 		     $^ $(filter-out -static,$(LDLIBS))	     \
 		     -fuse-ld=$(LLD) -Wl,-znoseparate-code -Wl,--build-id=sha1 \
 		     -fPIC -shared -o $@
+
+$(OUTPUT)/urandom_read.zip: $(OUTPUT)/liburandom_read.so
+	$(call msg,ZIP,,$@)
+	$(Q)$(ZIP) -0 -j $@ $< > /dev/null
 
 $(OUTPUT)/urandom_read: urandom_read.c urandom_read_aux.c $(OUTPUT)/liburandom_read.so
 	$(call msg,BINARY,,$@)

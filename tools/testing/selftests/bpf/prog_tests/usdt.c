@@ -356,6 +356,7 @@ static void subtest_urandom_usdt(bool auto_attach)
 		if (!ASSERT_OK(err, "skel_auto_attach"))
 			goto cleanup;
 	} else {
+		DECLARE_LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
 		l = bpf_program__attach_usdt(skel->progs.urand_read_without_sema,
 					     urand_pid, "./urandom_read",
 					     "urand", "read_without_sema", NULL);
@@ -383,6 +384,15 @@ static void subtest_urandom_usdt(bool auto_attach)
 		if (!ASSERT_OK_PTR(l, "urandlib_with_sema_attach"))
 			goto cleanup;
 		skel->links.urandlib_read_with_sema = l;
+
+		uprobe_opts.func_name = "urandlib_read_without_sema";
+		uprobe_opts.retprobe = false;
+		l = bpf_program__attach_uprobe_opts(skel->progs.urandlib_read_without_sema_in_archive,
+					     urand_pid, "./urandom_read.zip!/liburandom_read.so",
+					     0, &uprobe_opts);
+		if (!ASSERT_OK_PTR(l, "urandlib_without_sema_in_archive_attach"))
+			goto cleanup;
+		skel->links.urandlib_read_without_sema_in_archive = l;
 
 	}
 

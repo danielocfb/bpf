@@ -47,6 +47,7 @@ void test_uprobe_autoattach(void)
 	ASSERT_EQ(skel->bss->uprobe_byname2_ran, 3, "check_uprobe_byname2_ran");
 	ASSERT_EQ(skel->bss->uretprobe_byname2_rc, mem, "check_uretprobe_byname2_rc");
 	ASSERT_EQ(skel->bss->uretprobe_byname2_ran, 4, "check_uretprobe_byname2_ran");
+	//ASSERT_EQ(skel->bss->uprobe_in_archive_ran, 5, "check_uprobe_in_archive_ran");
 
 	ASSERT_EQ(skel->bss->a[0], 1, "arg1");
 	ASSERT_EQ(skel->bss->a[1], 2, "arg2");

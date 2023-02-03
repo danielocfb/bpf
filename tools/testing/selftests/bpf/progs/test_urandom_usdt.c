@@ -67,4 +67,14 @@ int BPF_USDT(urandlib_read_with_sema, int iter_num, int iter_cnt, int buf_sz)
 	return 0;
 }
 
+int uprobe_in_archive_res = 0;
+
+SEC("uprobe")
+int urandlib_read_without_sema_in_archive(void *ctx)
+{
+  uprobe_in_archive_res = 9;
+  return 0;
+}
+
+
 char _license[] SEC("license") = "GPL";

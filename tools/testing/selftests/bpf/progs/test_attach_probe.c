@@ -17,6 +17,7 @@ int uprobe_byname_res = 0;
 int uretprobe_byname_res = 0;
 int uprobe_byname2_res = 0;
 int uretprobe_byname2_res = 0;
+//int uprobe_in_archive_res = 0;
 int uprobe_byname3_sleepable_res = 0;
 int uprobe_byname3_res = 0;
 int uretprobe_byname3_sleepable_res = 0;
@@ -108,6 +109,17 @@ int handle_uretprobe_byname2(struct pt_regs *ctx)
 	uretprobe_byname2_res = 8;
 	return 0;
 }
+
+//SEC("uprobe")
+//int handle_uprobe_in_archive(struct pt_regs *ctx)
+//{
+//	unsigned int size = PT_REGS_PARM1(ctx);
+//
+//	/* verify malloc size */
+//	if (size == 1)
+//		uprobe_in_archive_res = 9;
+//	return 0;
+//}
 
 static __always_inline bool verify_sleepable_user_copy(void)
 {

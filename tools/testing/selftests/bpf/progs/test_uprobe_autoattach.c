@@ -17,6 +17,7 @@ size_t uprobe_byname2_parm1 = 0;
 int uprobe_byname2_ran = 0;
 char *uretprobe_byname2_rc = NULL;
 int uretprobe_byname2_ran = 0;
+//int uprobe_in_archive_ran = 0;
 
 int test_pid;
 
@@ -113,5 +114,18 @@ int handle_uretprobe_byname2(struct pt_regs *ctx)
 	uretprobe_byname2_ran = 4;
 	return 0;
 }
+
+
+//SEC("uprobe/./urandom_read.zip!/liburandom_read.so:urandlib_read_with_sema")
+//int handle_uprobe_in_archive(struct pt_regs *ctx)
+//{
+//	int pid = bpf_get_current_pid_tgid() >> 32;
+//
+//	/* ignore irrelevant invocations */
+//	if (test_pid != pid)
+//		return 0;
+//	uprobe_in_archive_ran = 5;
+//	return 0;
+//}
 
 char _license[] SEC("license") = "GPL";

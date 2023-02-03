@@ -18,6 +18,7 @@ feature
 test_sock
 test_sock_addr
 urandom_read
+urandom_read.zip
 test_sockmap
 test_lirc_mode2_user
 get_cgroup_id_user

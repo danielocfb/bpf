@@ -167,6 +167,16 @@ void test_attach_probe(void)
 	if (!ASSERT_OK_PTR(skel->links.handle_uretprobe_byname2, "attach_uretprobe_byname2"))
 		goto cleanup;
 
+	//uprobe_opts.func_name = "urandlib_read_without_sema";
+	//uprobe_opts.retprobe = false;
+	//skel->links.handle_uprobe_in_archive =
+	//		bpf_program__attach_uprobe_opts(skel->progs.handle_uprobe_in_archive,
+	//						0 /* this pid */,
+	//						"urandom_read.zip!/liburandom_read.so",
+	//						0, &uprobe_opts);
+	//if (!ASSERT_OK_PTR(skel->links.handle_uprobe_in_archive, "attach_uprobe_in_archive"))
+	//	goto cleanup;
+
 	/* sleepable kprobes should not attach successfully */
 	skel->links.handle_kprobe_sleepable = bpf_program__attach(skel->progs.handle_kprobe_sleepable);
 	if (!ASSERT_ERR_PTR(skel->links.handle_kprobe_sleepable, "attach_kprobe_sleepable"))
