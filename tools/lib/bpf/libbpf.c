@@ -10740,38 +10740,24 @@ static long elf_find_func_offset_from_elf_file(const char *binary_path, const ch
 	return ret;
 }
 
-/* Find offset of function name in object specified by path. It can either be
- * the direct path to a file or a string of the form <archive>!/<elf-object>.
- * The latter syntax allows for transparent handling of archives. Currently
+/* Find offset of function name in archive specified by path. Currently
  * supported are .zip files that do not compress their contents (as used on
- * Android in the form of APKs, for example).  "name" matches symbol name or
- * name@@LIB for library functions.
+ * Android in the form of APKs, for example).  "func_name" matches symbol name
+ * or name@@LIB for library functions.
  */
-static long elf_find_func_offset_from_path(const char *binary_path, const char *func_name)
+static long elf_find_func_offset_from_archive(const char *archive_path, const char *file_name, const char *func_name)
 {
-	const char *separator = strstr(binary_path, "!/"), *file_name;
 	struct zip_archive *archive = NULL;
-	char archive_path[PATH_MAX];
 	struct zip_entry entry;
 	long ret = -ENOENT;
 	Elf *elf;
 
-	if (separator == NULL || separator - binary_path >= PATH_MAX) {
-		/* There is no indication that we should treat the path as an
-		 * archive, so just interpret it as an ELF file.
-		 */
-		return elf_find_func_offset_from_elf_file(binary_path, func_name);
-	}
-
-	strncpy(archive_path, binary_path, separator - binary_path);
-	archive_path[separator - binary_path] = 0;
 	archive = zip_archive_open(archive_path);
 	if (archive == NULL) {
-		pr_warn("failed to open %s\n", archive_path);
-		return -LIBBPF_ERRNO__FORMAT;
+	  pr_warn("failed to open %s\n", archive_path);
+	  return -LIBBPF_ERRNO__FORMAT;
 	}
 
-	file_name = separator + 2;
 	if (zip_archive_find_entry(archive, file_name, &entry)) {
 		pr_warn("zip: could not find archive member %s\n", file_name);
 		ret = -LIBBPF_ERRNO__FORMAT;
@@ -10791,7 +10777,7 @@ static long elf_find_func_offset_from_path(const char *binary_path, const char *
 		goto out;
 	}
 
-	ret = elf_find_func_offset(elf, binary_path, func_name);
+	ret = elf_find_func_offset(elf, file_name, func_name);
 	elf_end(elf);
 
 out:
@@ -10886,6 +10872,9 @@ bpf_program__attach_uprobe_opts(const struct bpf_program *prog, pid_t pid,
 {
 	DECLARE_LIBBPF_OPTS(bpf_perf_event_opts, pe_opts);
 	char errmsg[STRERR_BUFSIZE], *legacy_probe = NULL;
+	const char *archive_path = NULL;
+	const char *archive_sep = NULL;
+	char full_archive_path[PATH_MAX];
 	char full_binary_path[PATH_MAX];
 	struct bpf_link *link;
 	size_t ref_ctr_off;
@@ -10913,11 +10902,29 @@ bpf_program__attach_uprobe_opts(const struct bpf_program *prog, pid_t pid,
 		}
 		binary_path = full_binary_path;
 	}
+
+	/* Check if "binary_path" refers to an archive. */
+	archive_sep = strstr(binary_path, "!/");
+	if (archive_sep != NULL) {
+		if (archive_sep - binary_path >= sizeof(full_archive_path)) {
+			return libbpf_err_ptr(-EINVAL);
+		}
+
+		strncpy(full_archive_path, binary_path, archive_sep - binary_path);
+		full_archive_path[archive_sep - binary_path] = 0;
+		archive_path = full_archive_path;
+		strcpy(full_binary_path, archive_sep + 2);
+	}
+
 	func_name = OPTS_GET(opts, func_name, NULL);
 	if (func_name) {
 		long sym_off;
 
-		sym_off = elf_find_func_offset_from_path(binary_path, func_name);
+		if (archive_path != NULL) {
+			sym_off = elf_find_func_offset_from_archive(archive_path, binary_path, func_name);
+		} else {
+			sym_off = elf_find_func_offset_from_elf_file(binary_path, func_name);
+		}
 		if (sym_off < 0)
 			return libbpf_err_ptr(sym_off);
 		func_offset += sym_off;
