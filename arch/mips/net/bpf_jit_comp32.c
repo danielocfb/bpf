@@ -446,6 +446,9 @@ static void emit_mul_i64(struct jit_context *ctx, const u8 dst[], s32 imm)
 		} else {
 			emit(ctx, multu, hi(dst), src);
 			emit(ctx, mflo, hi(dst));
+			/* Ensure multiplication is completed */
+			if (IS_ENABLED(CONFIG_CPU_R4000_WORKAROUNDS))
+				emit(ctx, mfhi, MIPS_R_ZERO);
 		}
 
 		/* hi(dst) = hi(dst) - lo(dst) */
@@ -504,6 +507,7 @@ static void emit_mul_r64(struct jit_context *ctx,
 	} else {
 		emit(ctx, multu, lo(dst), lo(src));
 		emit(ctx, mflo, lo(dst));
+		/* No need for workaround because we have this mfhi */
 		emit(ctx, mfhi, tmp);
 	}
 
